@@ -1,0 +1,308 @@
+<html>
+	<head>
+		<meta charset="UTF-8">
+	</head>
+	<body style="background-color: #404040;">
+		<script src="./gl-matrix-min.js"></script>
+		<div style="position: relative;">
+			<canvas id="txcanvas" width="1024" height="768" style="position: absolute; left: 0; top: 0; z-index: 1;"></canvas>
+			<canvas id="glcanvas" width="1024" height="768" style="position: absolute; left: 0; top: 0; z-index: 0;"></canvas>
+		</div>
+		<script id="solid_vertex_shader" type="x-shader/x-vertex">#version 300 es
+			uniform mat4 u_mvp;
+			uniform int u_mode;
+
+			in vec3 a_vertex_coordinates;
+			in vec4 a_colors;
+			in vec2 a_tc;
+
+			out vec4 colors;
+			out vec2 tc;
+			flat out int mode;
+
+			void main(void)
+			{ 
+				gl_Position = u_mvp * vec4(a_vertex_coordinates, 1.0);
+				colors = a_colors;
+				mode = u_mode;
+				tc = a_tc;
+			}
+		</script>
+		<script id="solid_fragment_shader" type="x-shader/x-fragment">#version 300 es
+			precision mediump float;
+			
+			uniform sampler2D u_t1;
+
+			flat in int mode;
+			in vec4 colors;
+			in vec2 tc;
+			
+			out vec4 frag_color;
+			
+			void main(void)
+			{
+				if (mode == 0)
+					frag_color = colors;
+				else if (mode == 1)
+					frag_color = vec4(tc, 0.0, 1.0);
+				else if (mode == 2)
+					frag_color = texture(u_t1, tc);
+				else if (mode == 3)
+					frag_color = texture(u_t1, tc) * colors;
+			}
+		</script>
+
+		<script>
+
+			function CreateShader(vrtx_id, frag_id) {
+				if (!vrtx_id)
+					throw "Parameter 1 to CreateShader may be missing.";
+
+				if (!frag_id)
+					throw "Parameter 2 to CreateShader may be missing.";
+
+				let success;
+
+				let vrtx = document.getElementById(vrtx_id);
+				if (!vrtx)
+					throw "Could not find script element " + vrtx_id;
+				vrtx = vrtx.text;
+
+				let frag = document.getElementById(frag_id);
+				if (!frag)
+					throw "Could not find script element " + frag_id;
+				frag = frag.text;
+
+				let vertShader = gl.createShader(gl.VERTEX_SHADER);
+				gl.shaderSource(vertShader, vrtx);
+				gl.compileShader(vertShader);
+				success = gl.getShaderParameter(vertShader, gl.COMPILE_STATUS);
+				if (!success)
+					throw "Could not compile vertex shader:" + gl.getShaderInfoLog(vertShader);
+
+				let fragShader = gl.createShader(gl.FRAGMENT_SHADER);
+				gl.shaderSource(fragShader, frag);
+				gl.compileShader(fragShader);
+				success = gl.getShaderParameter(fragShader, gl.COMPILE_STATUS);
+				if (!success)
+					throw "Could not compile fragment shader:" + gl.getShaderInfoLog(fragShader);
+
+				let shaderProgram = gl.createProgram();
+				gl.attachShader(shaderProgram, vertShader); 
+				gl.attachShader(shaderProgram, fragShader);
+				gl.linkProgram(shaderProgram);
+				success = gl.getProgramParameter(shaderProgram, gl.LINK_STATUS);
+				if (!success)
+					throw ("Shader program filed to link:" + gl.getProgramInfoLog (shaderProgram));
+					
+				return shaderProgram;
+			}
+
+			function InitializeShader(vs, fs) {
+				let shader = {};
+				shader.program = CreateShader(vs, fs);
+				console.log('InitializeShader: ' + vs + ' / ' + fs);
+				console.log('Program: ' + shader.program);
+				gl.useProgram(shader.program);
+				shader.a_vertex_coordinates = gl.getAttribLocation(shader.program, "a_vertex_coordinates");
+				shader.a_colors = gl.getAttribLocation(shader.program, "a_colors");
+				shader.a_tc = gl.getAttribLocation(shader.program, "a_tc");
+				shader.u_mvp = gl.getUniformLocation(shader.program, "u_mvp");
+				shader.u_mode = gl.getUniformLocation(shader.program, 'u_mode');
+				shader.u_t1 = gl.getUniformLocation(shader.program, 'u_t1');
+				gl.useProgram(null);
+				console.log('Vertex Coordinate handle: ' + shader.a_vertex_coordinates);
+				console.log('Color attribute handle: ' + shader.a_colors);
+				console.log('TC attribute handle: ' + shader.a_tc);
+				console.log('MVP Matrix handle: ' + shader.u_mvp);
+				console.log('Mode handle: ' + shader.u_mode);
+				console.log('T1 handle: ' + shader.u_t1);
+				console.log();
+				return shader;
+			}
+
+
+			function Title(ct) {
+				ct.textAlign = "left";
+				ct.textBaseline = "bottom";
+				ct.clearRect(0, 0, ct.canvas.width, ct.canvas.height);
+				ct.font = "32px Helvetica";
+				ct.fillStyle = "#FFFFFF";
+				ct.fillText("Texture Demos", 20, 50);
+				ct.font = "18px Helvetica";
+				ct.fillText('F1 to advance mode - see console', 20, ct.canvas.height - 80);
+			}
+			
+			function InitializeGeometry (gl, shader) {
+				let obj = { };
+				/*	This construction is DIFFERENT from what you have seen before. In all past examples, all vertex
+				**	attributes were placed in their own arrays. There is another way to specify vertex attributes.
+				**	This example shows how to provide all vertex attributes in the SAME array differentiating each
+				**	set using a different stride and offset. In this example:
+				**		Column Start	Column End	Purpose
+				**		0				2			Modeling coordinates (XYZ)
+				**		3				6			Color (RGBA)
+				**		7				9			Normal (XYZ)
+				**		10				11			Texture coordinates
+				**	There are 12 columns in total. This is the "stride".
+				**
+				**	Note in this example, I am going directly to the Float32Array because all the values are fully
+				**	baked. i.e. I am skipping the Javascript list step.
+				*/
+				obj.geometry = new Float32Array ([
+					-1.0,  1.0, 0.0,		1.0, 0.0, 0.0, 1.0,		0.0, 0.0, 1.0,		0.0, 0.0,	// v0
+					-1.0, -1.0, 0.0,		0.0, 0.0, 1.0, 1.0,		0.0, 0.0, 1.0,		0.0, 1.0,	// v1
+					 1.0,  1.0, 0.0,		0.0, 1.0, 0.0, 1.0,		0.0, 0.0, 1.0,		1.0, 0.0,	// v2
+					-1.0, -1.0, 0.0,		0.0, 0.0, 1.0, 1.0,		0.0, 0.0, 1.0,		0.0, 1.0,	// v1
+					 1.0, -1.0, 0.0,		0.5, 0.5, 0.5, 1.0,		0.0, 0.0, 1.0,		1.0, 1.0,	// v3
+					 1.0,  1.0, 0.0,		0.0, 1.0, 0.0, 1.0,		0.0, 0.0, 1.0,		1.0, 0.0	// v2
+				]);
+				obj.vao = gl.createVertexArray();
+				obj.vrts_buffer = gl.createBuffer();
+				obj.colr_buffer = gl.createBuffer();
+				obj.txtc_buffer = gl.createBuffer();
+				gl.bindVertexArray(obj.vao);
+
+				/*	Stride and offset are both calculated in bytes. There are 12 floats in
+				**	each row above and each float is 4 bytes. The verticies aere in column
+				**	0. Colors begin at index 3. Texture coordinates begin at index 10.
+				*/
+				
+				gl.bindBuffer(gl.ARRAY_BUFFER, obj.vrts_buffer);
+				gl.vertexAttribPointer(shader.a_vertex_coordinates, 3, gl.FLOAT, false, 12*4, 0*4);
+				gl.enableVertexAttribArray(shader.a_vertex_coordinates);
+				gl.bufferData(gl.ARRAY_BUFFER, obj.geometry, gl.STATIC_DRAW);
+
+				gl.bindBuffer(gl.ARRAY_BUFFER, obj.colr_buffer);
+				gl.vertexAttribPointer(shader.a_colors, 4, gl.FLOAT, false, 12*4, 3*4);
+				gl.enableVertexAttribArray(shader.a_colors);
+				gl.bufferData(gl.ARRAY_BUFFER, obj.geometry, gl.STATIC_DRAW);
+
+				gl.bindBuffer(gl.ARRAY_BUFFER, obj.txtc_buffer);
+				gl.vertexAttribPointer(shader.a_tc, 2, gl.FLOAT, false, 12*4, 10*4);
+				gl.enableVertexAttribArray(shader.a_tc);
+				gl.bufferData(gl.ARRAY_BUFFER, obj.geometry, gl.STATIC_DRAW);
+
+				return obj;
+			}
+
+			function TextureLoaded(t)
+			{
+				gl.bindTexture(gl.TEXTURE_2D, t.texture);
+				gl.activeTexture(gl.TEXTURE0 + 0);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, t.image);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+				gl.generateMipmap(gl.TEXTURE_2D);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+				console.log('Loaded');
+			}
+
+			function TextureLoadFailed()
+			{
+				throw 'Texture load failed';
+			}
+
+			function InitializeTexture(file_name, t)
+			{
+				if (gl == null || gl == undefined)
+					throw 'Texture::InitializeTexture() - gl cannot be null or undefined';
+				if (file_name == null || file_name == undefined)
+					throw 'Texture::InitializeTexture() - file_name cannot be null or undefined';
+
+				t.texture = gl.createTexture();
+
+				t.image = new Image();
+				t.image.crossOrigin = 'anonymous';
+				t.image.onload = function() { TextureLoaded(t); }
+				t.image.onerror = function() { TextureLoadFailed(); }
+				t.image.src = file_name;
+			}
+
+
+			function Radians(angle_in_degrees) {
+				return angle_in_degrees * (Math.PI / 180);
+			}
+
+			function DrawScene(now) {
+				now /= 1000;
+				
+				/*	Initialize gl drawing area.
+				*/
+				gl.enable(gl.DEPTH_TEST);
+				gl.depthFunc(gl.LEQUAL);
+				gl.clearColor(0.1, 0.1, 0.1, 1.0);
+				gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+				gl.viewport(0, 0, glcanvas.clientWidth, glcanvas.clientHeight);
+
+				let projection_matrix = mat4.create();
+				let modelview_matrix = mat4.create();
+				let mvp = mat4.create();
+				let p = vec3.create();
+
+				mat4.lookAt(modelview_matrix, vec3.fromValues(4.0, 1.0, 5.0), vec3.fromValues(0.0, 0.0, 0.0), y_axis);
+				mat4.perspective(projection_matrix, Radians(30.0), glcanvas.clientWidth / glcanvas.clientHeight, near_plane, far_plane);
+				mat4.rotate(modelview_matrix, modelview_matrix, now / 8, z_axis);
+				mat4.multiply(mvp, projection_matrix, modelview_matrix);				
+				gl.useProgram(solid_color_shader.program);
+				gl.uniformMatrix4fv(solid_color_shader.u_mvp, false, mvp);
+				gl.uniform1i(solid_color_shader.u_mode, mode);
+				gl.uniform1i(solid_color_shader.u_t1, 0);
+				gl.bindVertexArray(obj.vao);
+				gl.bindTexture(gl.TEXTURE_2D, txt_base.texture);
+				gl.drawArrays(gl.TRIANGLES, 0, 6);
+				gl.bindVertexArray(null);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+				gl.useProgram(null);
+
+				requestAnimationFrame(DrawScene);
+			}
+
+			var vec3 = glMatrix.vec3;
+			var mat4 = glMatrix.mat4;
+			var vec4 = glMatrix.vec4;
+			var vec2 = glMatrix.vec2;
+
+			var near_plane = 1;
+			var far_plane = 20;
+			var mode = 0;
+			var n_modes = 4;
+			var glcanvas = document.getElementById('glcanvas');
+			var txcanvas = document.getElementById("txcanvas");
+			var gl = glcanvas.getContext('webgl2');
+			var ct = txcanvas.getContext("2d");
+			var x_axis = [1,0,0];
+			var y_axis = [0,1,0];
+			var z_axis = [0,0,1];
+			var obj = {};
+			var txt_base = {};
+
+			document.addEventListener('keydown', function(event) {
+				switch (event.keyCode)
+				{
+					case 112:
+						mode = (mode + 1) % n_modes;
+						if (mode == 0)
+							console.log('Showing vertex colors.');
+						else if (mode == 1)
+							console.log('Showing texture coordinates.');
+						else if (mode == 2)
+							console.log('Showing flat unlit texture.');
+						else if (mode == 3)
+							console.log('Showing flat unlit texture multiplied by color.');
+						
+						break;
+				}
+			});
+
+			Title(ct);
+			solid_color_shader = InitializeShader('solid_vertex_shader', 'solid_fragment_shader');
+			obj = InitializeGeometry(gl, solid_color_shader);
+			InitializeTexture('t1.jpg', txt_base);
+
+			requestAnimationFrame(DrawScene)
+		</script>
+	</body>
+</html>
