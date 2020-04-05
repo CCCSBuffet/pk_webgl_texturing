@@ -2,7 +2,7 @@
 	<head>
 		<meta charset="UTF-8">
 	</head>
-	<body style="background-color: #202020;">
+	<body style="background-color: #404040;">
 		<script src="./gl-matrix-min.js"></script>
 		<div style="position: relative;">
 			<canvas id="txcanvas" width="1024" height="768" style="position: absolute; left: 0; top: 0; z-index: 1;"></canvas>
@@ -39,6 +39,7 @@
 			precision mediump float;
 			
 			uniform sampler2D u_t1;
+			uniform sampler2D u_t2;
 
 			flat in int mode;
 			in vec4 color;
@@ -50,18 +51,13 @@
 			
 			vec4 light_position = vec4(0.0, 0.0, 10.0, 1.0);
 			vec3 ka = vec3(0.0, 0.0, 0.0);
-			vec3 kd = vec3(0.8, 0.8, 0.8);
+			vec3 kd = vec3(0.9, 0.9, 0.9);
 			vec3 ks = vec3(0.2, 0.2, 0.2);
 			float kp = 200.0;
 
 			vec4 ADS() {
 				vec3 n = normalize(normal);
 
-				if (!gl_FrontFacing)
-				{
-					return vec4(ka, 1.0);
-				}
-			
 				vec3 s = normalize(vec3(light_position) - eye_coords);
 				vec3 v = normalize(-eye_coords);
 				vec3 r = reflect(-s, n);
@@ -87,6 +83,10 @@
 					frag_color = ADS();
 				else if (mode == 6)
 					frag_color = ADS() * texture(u_t1, tc);
+				else if (mode == 7)
+					frag_color = texture(u_t2, tc);
+				else if (mode == 8)
+					frag_color = ADS() * (texture(u_t1, tc) - texture(u_t2, tc));
 			}
 		</script>
 
@@ -151,6 +151,7 @@
 				shader.u_n = gl.getUniformLocation(shader.program, "u_n");
 				shader.u_mode = gl.getUniformLocation(shader.program, 'u_mode');
 				shader.u_t1 = gl.getUniformLocation(shader.program, 'u_t1');
+				shader.u_t2 = gl.getUniformLocation(shader.program, 'u_t2');
 				gl.useProgram(null);
 				console.log('Vertex attribute handle: ' + shader.a_vertex_coordinates);
 				console.log('Color attribute handle: ' + shader.a_color);
@@ -161,6 +162,7 @@
 				console.log('N Matrix handle: ' + shader.u_n);
 				console.log('Mode handle: ' + shader.u_mode);
 				console.log('T1 handle: ' + shader.u_t1);
+				console.log('T2 handle: ' + shader.u_t2);
 				console.log();
 				return shader;
 			}
@@ -174,9 +176,14 @@
 				ct.fillStyle = "#FFFFFF";
 				ct.fillText("Texture Demos", 20, 50);
 				ct.font = "18px Helvetica";
-				ct.fillText('F1 to advance mode - see console', 20, ct.canvas.height - 80);
+				ct.fillText('F1 to advance mode', 20, ct.canvas.height - 70);
 			}
 			
+			function Mode(ct, s) {
+				ct.clearRect(0, ct.canvas.height - 70, ct.canvas.width, ct.canvas.height);
+				ct.fillText(s, 20, ct.canvas.height - 40);
+			}
+
 			function InitializeGeometry (gl, shader) {
 				let obj = { };
 				/*	This construction is DIFFERENT from what you have seen before. In all past examples, all vertex
@@ -244,10 +251,11 @@
 				return obj;
 			}
 
-			function TextureLoaded(t)
+			function TextureLoaded(t, n)
 			{
+				console.log('Loaded: ' + n);
+				gl.activeTexture(gl.TEXTURE0 + n);
 				gl.bindTexture(gl.TEXTURE_2D, t.texture);
-				gl.activeTexture(gl.TEXTURE0 + 0);
 				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, t.image);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
@@ -255,7 +263,6 @@
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
 				gl.generateMipmap(gl.TEXTURE_2D);
 				gl.bindTexture(gl.TEXTURE_2D, null);
-				console.log('Loaded');
 			}
 
 			function TextureLoadFailed()
@@ -263,7 +270,7 @@
 				throw 'Texture load failed';
 			}
 
-			function InitializeTexture(file_name, t)
+			function InitializeTexture(file_name, t, n)
 			{
 				if (gl == null || gl == undefined)
 					throw 'Texture::InitializeTexture() - gl cannot be null or undefined';
@@ -274,7 +281,7 @@
 
 				t.image = new Image();
 				t.image.crossOrigin = 'anonymous';
-				t.image.onload = function() { TextureLoaded(t); }
+				t.image.onload = function() { TextureLoaded(t, n); }
 				t.image.onerror = function() { TextureLoadFailed(); }
 				t.image.src = file_name;
 			}
@@ -289,9 +296,10 @@
 				
 				/*	Initialize gl drawing area.
 				*/
+
 				gl.enable(gl.DEPTH_TEST);
 				gl.depthFunc(gl.LEQUAL);
-				gl.clearColor(0.1, 0.1, 0.1, 1.0);
+				gl.clearColor(0.1, 0.1, 0.3, 1.0);
 				gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 				gl.viewport(0, 0, glcanvas.clientWidth, glcanvas.clientHeight);
 
@@ -316,8 +324,12 @@
 				gl.uniformMatrix4fv(solid_color_shader.u_mv, false, modelview_matrix);
 				gl.uniform1i(solid_color_shader.u_mode, mode);
 				gl.uniform1i(solid_color_shader.u_t1, 0);
+				gl.uniform1i(solid_color_shader.u_t2, 1);
 				gl.bindVertexArray(obj.vao);
+				gl.activeTexture(gl.TEXTURE0);
 				gl.bindTexture(gl.TEXTURE_2D, txt_base.texture);
+				gl.activeTexture(gl.TEXTURE1);
+				gl.bindTexture(gl.TEXTURE_2D, txt_dirt.texture);
 				gl.drawArrays(gl.TRIANGLES, 0, 12);
 				gl.bindVertexArray(null);
 				gl.bindTexture(gl.TEXTURE_2D, null);
@@ -342,7 +354,7 @@
 			var near_plane = 1;
 			var far_plane = 20;
 			var mode = 0;
-			var n_modes = 7;
+			var n_modes = 9;
 			var glcanvas = document.getElementById('glcanvas');
 			var txcanvas = document.getElementById("txcanvas");
 			var gl = glcanvas.getContext('webgl2');
@@ -352,6 +364,9 @@
 			var z_axis = [0,0,1];
 			var obj = {};
 			var txt_base = {};
+			var txt_dirt = {};
+
+			Mode(ct, 'Showing vertex colors.');
 
 			document.addEventListener('keydown', function(event) {
 				switch (event.keyCode)
@@ -359,19 +374,23 @@
 					case 112:
 						mode = (mode + 1) % n_modes;
 						if (mode == 0)
-							console.log('Showing vertex colors.');
+							Mode(ct, 'Showing vertex colors.');
 						else if (mode == 1)
-							console.log('Showing texture coordinates.');
+							Mode(ct, 'Showing texture coordinates.');
 						else if (mode == 2)
-							console.log('Showing flat unlit texture.');
+							Mode(ct, 'Showing flat unlit texture 1.');
 						else if (mode == 3)
-							console.log('Showing flat unlit texture multiplied by color.');
+							Mode(ct, 'Showing flat unlit texture multiplied by color.');
 						else if (mode == 4)
-							console.log('Showing raw normal.');
+							Mode(ct, 'Showing raw normal.');
 						else if (mode == 5)
-							console.log('Showing per pixel lighting without texture.');
+							Mode(ct, 'Showing per pixel lighting without texture.');
 						else if (mode == 6)
-							console.log('Showing per pixel lighting multiplied by texture.');
+							Mode(ct, 'Showing per pixel lighting multiplied by texture.');
+						else if (mode == 7)
+							Mode(ct, 'Showing flat unlit texture 2.');
+						else if (mode == 7)
+							Mode(ct, 'Showing texture 2 subtracted from texture 1 (both lit).');
 						break;
 				}
 			});
@@ -379,7 +398,8 @@
 			Title(ct);
 			solid_color_shader = InitializeShader('solid_vertex_shader', 'solid_fragment_shader');
 			obj = InitializeGeometry(gl, solid_color_shader);
-			InitializeTexture('t1.jpg', txt_base);
+			InitializeTexture('t1.jpg', txt_base, 0);
+			InitializeTexture('dirt.png', txt_dirt, 1);
 
 			requestAnimationFrame(DrawScene)
 		</script>
