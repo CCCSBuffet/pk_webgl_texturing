@@ -13,19 +13,22 @@
 			uniform int u_mode;
 
 			in vec3 a_vertex_coordinates;
-			in vec4 a_colors;
+			in vec4 a_color;
 			in vec2 a_tc;
+			in vec3 a_normals;
 
-			out vec4 colors;
+			out vec4 color;
 			out vec2 tc;
+			out vec3 normal;
 			flat out int mode;
 
 			void main(void)
 			{ 
 				gl_Position = u_mvp * vec4(a_vertex_coordinates, 1.0);
-				colors = a_colors;
+				color = a_color;
 				mode = u_mode;
 				tc = a_tc;
+				normal = a_normals;
 			}
 		</script>
 		<script id="solid_fragment_shader" type="x-shader/x-fragment">#version 300 es
@@ -34,21 +37,30 @@
 			uniform sampler2D u_t1;
 
 			flat in int mode;
-			in vec4 colors;
+			in vec4 color;
+			in vec3 normal;
 			in vec2 tc;
 			
 			out vec4 frag_color;
 			
+			vec4 ADS() {
+				return vec4(1.0, 1.0, 1.0, 1.0);
+			}
+			
 			void main(void)
 			{
 				if (mode == 0)
-					frag_color = colors;
+					frag_color = color;
 				else if (mode == 1)
 					frag_color = vec4(tc, 0.0, 1.0);
 				else if (mode == 2)
 					frag_color = texture(u_t1, tc);
 				else if (mode == 3)
-					frag_color = texture(u_t1, tc) * colors;
+					frag_color = texture(u_t1, tc) * color;
+				else if (mode == 4)
+					frag_color = vec4(normal, 1.0);
+				else if (mode == 5)
+					frag_color = ADS();
 			}
 		</script>
 
@@ -105,14 +117,16 @@
 				console.log('Program: ' + shader.program);
 				gl.useProgram(shader.program);
 				shader.a_vertex_coordinates = gl.getAttribLocation(shader.program, "a_vertex_coordinates");
-				shader.a_colors = gl.getAttribLocation(shader.program, "a_colors");
+				shader.a_color = gl.getAttribLocation(shader.program, "a_color");
+				shader.a_normals = gl.getAttribLocation(shader.program, "a_normals");
 				shader.a_tc = gl.getAttribLocation(shader.program, "a_tc");
 				shader.u_mvp = gl.getUniformLocation(shader.program, "u_mvp");
 				shader.u_mode = gl.getUniformLocation(shader.program, 'u_mode');
 				shader.u_t1 = gl.getUniformLocation(shader.program, 'u_t1');
 				gl.useProgram(null);
-				console.log('Vertex Coordinate handle: ' + shader.a_vertex_coordinates);
-				console.log('Color attribute handle: ' + shader.a_colors);
+				console.log('Vertex attribute handle: ' + shader.a_vertex_coordinates);
+				console.log('Color attribute handle: ' + shader.a_color);
+				console.log('Normal attribute handle: ' + shader.a_normals);
 				console.log('TC attribute handle: ' + shader.a_tc);
 				console.log('MVP Matrix handle: ' + shader.u_mvp);
 				console.log('Mode handle: ' + shader.u_mode);
@@ -161,6 +175,7 @@
 				obj.vrts_buffer = gl.createBuffer();
 				obj.colr_buffer = gl.createBuffer();
 				obj.txtc_buffer = gl.createBuffer();
+				obj.nrml_buffer = gl.createBuffer();
 				gl.bindVertexArray(obj.vao);
 
 				/*	Stride and offset are both calculated in bytes. There are 12 floats in
@@ -173,9 +188,14 @@
 				gl.enableVertexAttribArray(shader.a_vertex_coordinates);
 				gl.bufferData(gl.ARRAY_BUFFER, obj.geometry, gl.STATIC_DRAW);
 
+				gl.bindBuffer(gl.ARRAY_BUFFER, obj.nrml_buffer);
+				gl.vertexAttribPointer(shader.a_normals, 3, gl.FLOAT, false, 12*4, 7*4);
+				gl.enableVertexAttribArray(shader.a_normals);
+				gl.bufferData(gl.ARRAY_BUFFER, obj.geometry, gl.STATIC_DRAW);
+
 				gl.bindBuffer(gl.ARRAY_BUFFER, obj.colr_buffer);
-				gl.vertexAttribPointer(shader.a_colors, 4, gl.FLOAT, false, 12*4, 3*4);
-				gl.enableVertexAttribArray(shader.a_colors);
+				gl.vertexAttribPointer(shader.a_color, 4, gl.FLOAT, false, 12*4, 3*4);
+				gl.enableVertexAttribArray(shader.a_color);
 				gl.bufferData(gl.ARRAY_BUFFER, obj.geometry, gl.STATIC_DRAW);
 
 				gl.bindBuffer(gl.ARRAY_BUFFER, obj.txtc_buffer);
@@ -258,6 +278,13 @@
 				gl.useProgram(null);
 
 				requestAnimationFrame(DrawScene);
+				/*
+					let nm = mat3.create();
+					mat3.fromMat4(nm, mv);
+					mat3.invert(nm, nm);
+					mat3.transpose(nm, nm);
+					gl.uniformMatrix3fv(shader.u_nm, false, nm);
+				*/
 			}
 
 			var vec3 = glMatrix.vec3;
@@ -268,7 +295,7 @@
 			var near_plane = 1;
 			var far_plane = 20;
 			var mode = 0;
-			var n_modes = 4;
+			var n_modes = 5;
 			var glcanvas = document.getElementById('glcanvas');
 			var txcanvas = document.getElementById("txcanvas");
 			var gl = glcanvas.getContext('webgl2');
@@ -292,7 +319,8 @@
 							console.log('Showing flat unlit texture.');
 						else if (mode == 3)
 							console.log('Showing flat unlit texture multiplied by color.');
-						
+						else if (mode == 4)
+							console.log('Showing raw normal.');
 						break;
 				}
 			});
