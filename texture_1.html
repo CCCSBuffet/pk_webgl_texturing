@@ -2,7 +2,7 @@
 	<head>
 		<meta charset="UTF-8">
 	</head>
-	<body style="background-color: #404040;">
+	<body style="background-color: #202020;">
 		<script src="./gl-matrix-min.js"></script>
 		<div style="position: relative;">
 			<canvas id="txcanvas" width="1024" height="768" style="position: absolute; left: 0; top: 0; z-index: 1;"></canvas>
@@ -10,7 +10,9 @@
 		</div>
 		<script id="solid_vertex_shader" type="x-shader/x-vertex">#version 300 es
 			uniform mat4 u_mvp;
+			uniform mat4 u_mv;
 			uniform int u_mode;
+			uniform mat3 u_n;
 
 			in vec3 a_vertex_coordinates;
 			in vec4 a_color;
@@ -20,6 +22,7 @@
 			out vec4 color;
 			out vec2 tc;
 			out vec3 normal;
+			out vec3 eye_coords;
 			flat out int mode;
 
 			void main(void)
@@ -28,7 +31,8 @@
 				color = a_color;
 				mode = u_mode;
 				tc = a_tc;
-				normal = a_normals;
+				normal = normalize(u_n * a_normals);
+				eye_coords = vec3(u_mv * vec4(a_vertex_coordinates,1.0));
 			}
 		</script>
 		<script id="solid_fragment_shader" type="x-shader/x-fragment">#version 300 es
@@ -39,12 +43,32 @@
 			flat in int mode;
 			in vec4 color;
 			in vec3 normal;
+			in vec3 eye_coords;
 			in vec2 tc;
 			
 			out vec4 frag_color;
 			
+			vec4 light_position = vec4(0.0, 0.0, 10.0, 1.0);
+			vec3 ka = vec3(0.0, 0.0, 0.0);
+			vec3 kd = vec3(0.8, 0.8, 0.8);
+			vec3 ks = vec3(0.2, 0.2, 0.2);
+			float kp = 200.0;
+
 			vec4 ADS() {
-				return vec4(1.0, 1.0, 1.0, 1.0);
+				vec3 n = normalize(normal);
+
+				if (!gl_FrontFacing)
+				{
+					return vec4(ka, 1.0);
+				}
+			
+				vec3 s = normalize(vec3(light_position) - eye_coords);
+				vec3 v = normalize(-eye_coords);
+				vec3 r = reflect(-s, n);
+				vec3 diffuse = max(dot(s, n), 0.0) * kd;
+				vec3 specular = pow(max(dot(r, v), 0.0), kp) * ks;
+			
+				return vec4(ka + diffuse + specular, 1.0);
 			}
 			
 			void main(void)
@@ -61,6 +85,8 @@
 					frag_color = vec4(normal, 1.0);
 				else if (mode == 5)
 					frag_color = ADS();
+				else if (mode == 6)
+					frag_color = ADS() * texture(u_t1, tc);
 			}
 		</script>
 
@@ -121,6 +147,8 @@
 				shader.a_normals = gl.getAttribLocation(shader.program, "a_normals");
 				shader.a_tc = gl.getAttribLocation(shader.program, "a_tc");
 				shader.u_mvp = gl.getUniformLocation(shader.program, "u_mvp");
+				shader.u_mv = gl.getUniformLocation(shader.program, "u_mv");
+				shader.u_n = gl.getUniformLocation(shader.program, "u_n");
 				shader.u_mode = gl.getUniformLocation(shader.program, 'u_mode');
 				shader.u_t1 = gl.getUniformLocation(shader.program, 'u_t1');
 				gl.useProgram(null);
@@ -129,6 +157,8 @@
 				console.log('Normal attribute handle: ' + shader.a_normals);
 				console.log('TC attribute handle: ' + shader.a_tc);
 				console.log('MVP Matrix handle: ' + shader.u_mvp);
+				console.log('MV Matrix handle: ' + shader.u_mv);
+				console.log('N Matrix handle: ' + shader.u_n);
 				console.log('Mode handle: ' + shader.u_mode);
 				console.log('T1 handle: ' + shader.u_t1);
 				console.log();
@@ -164,12 +194,20 @@
 				**	baked. i.e. I am skipping the Javascript list step.
 				*/
 				obj.geometry = new Float32Array ([
-					-1.0,  1.0, 0.0,		1.0, 0.0, 0.0, 1.0,		0.0, 0.0, 1.0,		0.0, 0.0,	// v0
-					-1.0, -1.0, 0.0,		0.0, 0.0, 1.0, 1.0,		0.0, 0.0, 1.0,		0.0, 1.0,	// v1
-					 1.0,  1.0, 0.0,		0.0, 1.0, 0.0, 1.0,		0.0, 0.0, 1.0,		1.0, 0.0,	// v2
-					-1.0, -1.0, 0.0,		0.0, 0.0, 1.0, 1.0,		0.0, 0.0, 1.0,		0.0, 1.0,	// v1
-					 1.0, -1.0, 0.0,		0.5, 0.5, 0.5, 1.0,		0.0, 0.0, 1.0,		1.0, 1.0,	// v3
-					 1.0,  1.0, 0.0,		0.0, 1.0, 0.0, 1.0,		0.0, 0.0, 1.0,		1.0, 0.0	// v2
+					-1.0,  1.0,  1.0,		1.0, 0.0, 0.0, 1.0,		0.0, 0.0,  1.0,		0.0, 0.0,	// v0
+					-1.0, -1.0,  1.0,		0.0, 0.0, 1.0, 1.0,		0.0, 0.0,  1.0,		0.0, 1.0,	// v1
+					 1.0,  1.0,  1.0,		0.0, 1.0, 0.0, 1.0,		0.0, 0.0,  1.0,		1.0, 0.0,	// v2
+					-1.0, -1.0,  1.0,		0.0, 0.0, 1.0, 1.0,		0.0, 0.0,  1.0,		0.0, 1.0,	// v1
+					 1.0, -1.0,  1.0,		0.5, 0.5, 0.5, 1.0,		0.0, 0.0,  1.0,		1.0, 1.0,	// v3
+					 1.0,  1.0,  1.0,		0.0, 1.0, 0.0, 1.0,		0.0, 0.0,  1.0,		1.0, 0.0,	// v2
+  
+					-1.0,  1.0, -1.0,		0.0, 1.0, 1.0, 1.0,		0.0, 0.0, -1.0,		0.0, 0.0,	// v0
+					 1.0,  1.0, -1.0,		0.0, 1.0, 1.0, 1.0,		0.0, 0.0, -1.0,		5.0, 0.0,	// v2
+					-1.0, -1.0, -1.0,		1.0, 1.0, 0.0, 1.0,		0.0, 0.0, -1.0,		0.0, 5.0,	// v1
+					-1.0, -1.0, -1.0,		1.0, 1.0, 0.0, 1.0,		0.0, 0.0, -1.0,		0.0, 5.0,	// v1
+					 1.0,  1.0, -1.0,		0.0, 1.0, 1.0, 1.0,		0.0, 0.0, -1.0,		5.0, 0.0,	// v2
+					 1.0, -1.0, -1.0,		1.0, 0.0, 1.0, 1.0,		0.0, 0.0, -1.0,		5.0, 5.0	// v3
+
 				]);
 				obj.vao = gl.createVertexArray();
 				obj.vrts_buffer = gl.createBuffer();
@@ -260,19 +298,27 @@
 				let projection_matrix = mat4.create();
 				let modelview_matrix = mat4.create();
 				let mvp = mat4.create();
+				let nm = mat3.create();
 				let p = vec3.create();
 
-				mat4.lookAt(modelview_matrix, vec3.fromValues(4.0, 1.0, 5.0), vec3.fromValues(0.0, 0.0, 0.0), y_axis);
+				mat4.lookAt(modelview_matrix, vec3.fromValues(0.0, 0.0, 5.0), vec3.fromValues(0.0, 0.0, 0.0), y_axis);
 				mat4.perspective(projection_matrix, Radians(30.0), glcanvas.clientWidth / glcanvas.clientHeight, near_plane, far_plane);
-				mat4.rotate(modelview_matrix, modelview_matrix, now / 8, z_axis);
-				mat4.multiply(mvp, projection_matrix, modelview_matrix);				
+				mat4.rotate(modelview_matrix, modelview_matrix, now / 2, y_axis);
+				mat4.multiply(mvp, projection_matrix, modelview_matrix);	
+				
+				mat3.fromMat4(nm, modelview_matrix);
+				mat3.invert(nm, nm);
+				mat3.transpose(nm, nm);				
+
 				gl.useProgram(solid_color_shader.program);
 				gl.uniformMatrix4fv(solid_color_shader.u_mvp, false, mvp);
+				gl.uniformMatrix3fv(solid_color_shader.u_n, false, nm);
+				gl.uniformMatrix4fv(solid_color_shader.u_mv, false, modelview_matrix);
 				gl.uniform1i(solid_color_shader.u_mode, mode);
 				gl.uniform1i(solid_color_shader.u_t1, 0);
 				gl.bindVertexArray(obj.vao);
 				gl.bindTexture(gl.TEXTURE_2D, txt_base.texture);
-				gl.drawArrays(gl.TRIANGLES, 0, 6);
+				gl.drawArrays(gl.TRIANGLES, 0, 12);
 				gl.bindVertexArray(null);
 				gl.bindTexture(gl.TEXTURE_2D, null);
 				gl.useProgram(null);
@@ -289,13 +335,14 @@
 
 			var vec3 = glMatrix.vec3;
 			var mat4 = glMatrix.mat4;
+			var mat3 = glMatrix.mat3;
 			var vec4 = glMatrix.vec4;
 			var vec2 = glMatrix.vec2;
 
 			var near_plane = 1;
 			var far_plane = 20;
 			var mode = 0;
-			var n_modes = 5;
+			var n_modes = 7;
 			var glcanvas = document.getElementById('glcanvas');
 			var txcanvas = document.getElementById("txcanvas");
 			var gl = glcanvas.getContext('webgl2');
@@ -321,6 +368,10 @@
 							console.log('Showing flat unlit texture multiplied by color.');
 						else if (mode == 4)
 							console.log('Showing raw normal.');
+						else if (mode == 5)
+							console.log('Showing per pixel lighting without texture.');
+						else if (mode == 6)
+							console.log('Showing per pixel lighting multiplied by texture.');
 						break;
 				}
 			});
