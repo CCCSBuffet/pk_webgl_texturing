@@ -214,6 +214,8 @@ window.onload = function(e) {
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo_pos);
         var verts = [
             -1, -1,  1,   1,  1,  1,  -1,  1,  1,   1, -1,  1, // Front
+
+
             -1, -1, -1,   1,  1, -1,  -1,  1, -1,   1, -1, -1, // Back
              1, -1, -1,   1,  1,  1,   1, -1,  1,   1,  1, -1, // Right
             -1, -1, -1,  -1,  1,  1,  -1, -1,  1,  -1,  1, -1, // Left
@@ -227,7 +229,9 @@ window.onload = function(e) {
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo_tang);
         var tangs = [
              1,  0,  0,   1,  0,  0,   1,  0,  0,   1,  0,  0, // Front
-            -1,  0,  0,  -1,  0,  0,  -1,  0,  0,  -1,  0,  0, // Back
+            
+			
+			-1,  0,  0,  -1,  0,  0,  -1,  0,  0,  -1,  0,  0, // Back
              0,  0, -1,   0,  0, -1,   0,  0, -1,   0,  0, -1, // Right
              0,  0,  1,   0,  0,  1,   0,  0,  1,   0,  0,  1, // Left
              1,  0,  0,   1,  0,  0,   1,  0,  0,   1,  0,  0, // Top
@@ -240,7 +244,10 @@ window.onload = function(e) {
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo_bitang);
         var bitangs = [
              0, -1,  0,   0, -1,  0,   0, -1,  0,   0, -1,  0, // Front
-             0, -1,  0,   0, -1,  0,   0, -1,  0,   0, -1,  0, // Back
+            
+			
+			
+			 0, -1,  0,   0, -1,  0,   0, -1,  0,   0, -1,  0, // Back
              0, -1,  0,   0, -1,  0,   0, -1,  0,   0, -1,  0, // Right
              0, -1,  0,   0, -1,  0,   0, -1,  0,   0, -1,  0, // Left
              0,  0,  1,   0,  0,  1,   0,  0,  1,   0,  0,  1, // Top
@@ -253,7 +260,10 @@ window.onload = function(e) {
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo_uv);
         var uvs = [
              0,  1,  1,  0,  0,  0,  1,  1, // Front
-             1,  1,  0,  0,  1,  0,  0,  1, // Back
+           
+		   
+		   
+		     1,  1,  0,  0,  1,  0,  0,  1, // Back
              1,  1,  0,  0,  0,  1,  1,  0, // Right
              0,  1,  1,  0,  1,  1,  0,  0, // Left
              0,  0,  1,  1,  0,  1,  1,  0, // Top
@@ -559,3 +569,41 @@ function mtx_perspective(fov_y, aspect, z_near, z_far) {
             0.0 , 0.0 , D   ,  0.0
         ];
 }
+
+
+
+
+
+
+
+			void main(void)
+			{
+				color = a_color;
+				tc = a_tc;
+
+				// vertex in model space.
+				v = u_M * vec4(a_vertex_coordinate, 1.0);
+
+				// Emit position is clip space.
+				gl_Position = u_P * u_V * v;
+		
+				vec3 T = normalize(u_N * a_tang);
+				vec3 B = normalize(u_N * a_bitang);
+				vec3 N = normalize(u_N * a_normal);
+				mat3 TBNi = inverse(mat3(T, B, N));
+
+				// Light Vector in tangent space
+				LV  = TBNi * (inverse(u_M) * vec4(lp - v.xyz, 0)).xyz;
+				
+				// vertex in eye space 
+				v = u_V * v;
+
+				// light vector in eye space
+				vec4 light_vector_eye  = normalize((u_V * vec4(lp, 1.0)) - v);
+				// view vector in eye space
+			    vec4 viewer_vector_eye = normalize(-v);
+				// halfway vector in tangent space
+				HV = TBNi * (inverse(u_V * u_M) * vec4((light_vector_eye.xyz + viewer_vector_eye.xyz), 0.0)).xyz;
+				//NV = inverse(transpose(TBNi)) * N;
+				NV = N;
+			}
